@@ -10,6 +10,7 @@ import type {
   InterviewMode,
   RubricArea,
   RubricScore,
+  RubricWeights,
 } from "./types";
 
 // Local agent overview:
@@ -32,6 +33,8 @@ type InterviewAgentState = {
   missingAreas: RubricArea[];
   weakestArea: RubricArea;
   strongestArea: RubricArea;
+  memoryFocusArea?: RubricArea;
+  memoryFocusCount: number;
   appearsStuck: boolean;
   asksForExactCompanyQuestion: boolean;
 };
@@ -199,6 +202,7 @@ export function buildInterviewState(
   const coverage = normalizeCoverage(signals);
   const coveredAreas = rubricAreasByCoverage(coverage, "covered");
   const missingAreas = rubricAreasByCoverage(coverage, "missing");
+  const memoryFocus = request.progressMemory?.repeatedWeakAreas[0];
 
   return {
     answerText,
@@ -212,6 +216,8 @@ export function buildInterviewState(
     missingAreas,
     weakestArea: findWeakestArea(signals),
     strongestArea: findStrongestArea(signals),
+    memoryFocusArea: memoryFocus?.area,
+    memoryFocusCount: memoryFocus?.count ?? 0,
     appearsStuck: detectStuckAnswer(lastAnswer),
     asksForExactCompanyQuestion: detectExactCompanyQuestion(
       `${request.prompt} ${lastAnswer}`,
@@ -307,6 +313,15 @@ function scoreCandidateActions(
     addScore(scores, "ask_follow_up", 20);
   }
 
+  if (
+    state.memoryFocusArea &&
+    state.memoryFocusCount >= 2 &&
+    !state.missingAreas.includes(state.memoryFocusArea) &&
+    state.candidateTurnCount < 3
+  ) {
+    addScore(scores, "ask_follow_up", 10);
+  }
+
   if (state.missingAreas.includes("Structure") && state.latestWordCount < 60) {
     addScore(scores, "suggest_drill", 15);
   }
@@ -356,6 +371,15 @@ function pickFocusArea(action: AgentAction, state: InterviewAgentState) {
     return "Structure";
   }
 
+  if (
+    action === "ask_follow_up" &&
+    state.memoryFocusArea &&
+    state.memoryFocusCount >= 2 &&
+    state.coverage[state.memoryFocusArea] < 0.65
+  ) {
+    return state.memoryFocusArea;
+  }
+
   return state.weakestArea;
 }
 
@@ -401,6 +425,12 @@ function buildDecisionSignals({
     signals.push(`covered areas: ${state.coveredAreas.join(", ")}`);
   }
 
+  if (state.memoryFocusArea) {
+    signals.push(
+      `memory focus: ${state.memoryFocusArea} was weak in ${state.memoryFocusCount} recent sessions`,
+    );
+  }
+
   if (state.appearsStuck) {
     signals.push("candidate appears stuck or asked for a hint");
   }
@@ -436,6 +466,13 @@ function buildDecisionReason(
     return `The policy selected a focused drill because ${driver}; the next useful practice target is ${nextFocusArea}.`;
   }
 
+  if (
+    state.memoryFocusArea === nextFocusArea &&
+    state.memoryFocusCount >= 2
+  ) {
+    return `The policy selected an adaptive follow-up because ${nextFocusArea} is a repeated weak area from recent sessions and still needs coverage in this answer.`;
+  }
+
   return `The policy selected an adaptive follow-up because the session is still active and ${nextFocusArea} is the weakest detected rubric area.`;
 }
 
@@ -460,6 +497,7 @@ function askFollowUpTool({ decision, request }: AgentToolInput): AgentTurn {
     actionScores: decision.actionScores,
     coachMessage: followUps[request.mode][decision.nextFocusArea],
     sessionStatus: "active",
+    evaluation: null,
     nextFocusArea: decision.nextFocusArea,
     source: "local",
     guardrailNote,
@@ -469,7 +507,11 @@ function askFollowUpTool({ decision, request }: AgentToolInput): AgentTurn {
 // Tool action: evaluate_answer.
 // Use this when the session has enough signal or the user clicked End session.
 function evaluateAnswerTool({ decision, request }: AgentToolInput): AgentTurn {
-  const evaluation = evaluateAnswerSet(request.messages, request.mode);
+  const evaluation = evaluateAnswerSet(
+    request.messages,
+    request.mode,
+    request.rubricWeights,
+  );
 
   return {
     action: "evaluate_answer",
@@ -504,6 +546,7 @@ function suggestDrillTool({ decision, request, state }: AgentToolInput): AgentTu
     actionScores: decision.actionScores,
     coachMessage: `${guardrailPrefix}${buildDrill(decision.nextFocusArea, request.mode)} Then answer the original prompt again with that structure.`,
     sessionStatus: "active",
+    evaluation: null,
     nextFocusArea: decision.nextFocusArea,
     source: "local",
     guardrailNote,
@@ -513,6 +556,7 @@ function suggestDrillTool({ decision, request, state }: AgentToolInput): AgentTu
 export function evaluateAnswerSet(
   messages: InterviewMessage[],
   mode: InterviewMode,
+  rubricWeights?: RubricWeights,
 ): Evaluation {
   // The evaluation is built from the full candidate answer set, not only the
   // latest message, because rubric scoring should reflect the whole session.
@@ -520,10 +564,14 @@ export function evaluateAnswerSet(
     .filter((message) => message.role === "candidate")
     .map((message) => message.content)
     .join(" ");
+
+  if (hasInsufficientAnswerEvidence(answerText)) {
+    return buildInsufficientEvidenceEvaluation(mode);
+  }
+
   const signals = scoreSignals(answerText);
   const rubricScores = buildRubricScores(signals, answerText, mode);
-  const total = rubricScores.reduce((sum, item) => sum + item.score, 0);
-  const overallScore = Math.round((total / (rubricScores.length * 5)) * 100);
+  const overallScore = calculateOverallScore(rubricScores, rubricWeights);
   const sortedWeakAreas = [...rubricScores]
     .sort((a, b) => a.score - b.score)
     .slice(0, 2)
@@ -538,6 +586,28 @@ export function evaluateAnswerSet(
     followUpQuestions: sortedWeakAreas.map((area) => followUps[mode][area]),
     weakAreaTags: sortedWeakAreas,
   };
+}
+
+function calculateOverallScore(
+  rubricScores: RubricScore[],
+  rubricWeights?: RubricWeights,
+) {
+  const weights = rubricWeights ?? null;
+  const totalWeight =
+    weights &&
+    rubricScores.reduce((sum, item) => sum + (weights[item.area] ?? 0), 0);
+
+  if (!weights || !totalWeight) {
+    const total = rubricScores.reduce((sum, item) => sum + item.score, 0);
+    return Math.round((total / (rubricScores.length * 5)) * 100);
+  }
+
+  const weightedScore = rubricScores.reduce((sum, item) => {
+    const weight = weights[item.area] ?? 0;
+    return sum + (item.score / item.maxScore) * weight;
+  }, 0);
+
+  return Math.round((weightedScore / totalWeight) * 100);
 }
 
 function scoreSignals(text: string): Record<RubricArea, number> {
@@ -592,8 +662,56 @@ function buildRubricScores(
   });
 }
 
+export function hasInsufficientAnswerEvidence(text: string) {
+  const normalized = text.trim().toLowerCase();
+  const words = normalized.split(/\s+/).filter(Boolean);
+  const alphaCharacters = normalized.replace(/[^a-z]/g, "");
+  const hasRubricSignal = rubricAreas.some((area) =>
+    keywordSignals[area].some((keyword) => normalized.includes(keyword)),
+  );
+  const onlyClarifyingQuestion =
+    normalized.includes("?") &&
+    words.length < 18 &&
+    /should i|do you want|assume|clarify|before i answer/.test(normalized);
+
+  return (
+    words.length < 3 ||
+    alphaCharacters.length < 8 ||
+    (words.length < 8 && !hasRubricSignal) ||
+    onlyClarifyingQuestion
+  );
+}
+
+function buildInsufficientEvidenceEvaluation(mode: InterviewMode): Evaluation {
+  const rubricScores = rubricAreas.map((area) => ({
+    area,
+    score: 0,
+    maxScore: 5,
+    rationale: `${area} could not be scored because the response did not provide enough ${mode.toLowerCase()} answer evidence.`,
+  }));
+
+  return {
+    overallScore: 0,
+    rubricScores,
+    strengths: [
+      "No interview-ready answer evidence was provided in this turn.",
+    ],
+    improvementAreas: [
+      "Give a complete answer before ending the session so the coach can score the rubric fairly.",
+      "If you need clarification, ask it first, then continue with your assumptions and design.",
+    ],
+    suggestedNextDrill:
+      "Restart the prompt and give a 60-second answer with requirements, constraints, and one concrete design decision.",
+    followUpQuestions: [
+      followUps[mode].Structure,
+      followUps[mode]["Communication clarity"],
+    ],
+    weakAreaTags: ["Structure", "Communication clarity"],
+  };
+}
+
 function clampScore(score: number) {
-  return Math.max(1, Math.min(5, Math.round(score)));
+  return Math.max(0, Math.min(5, Math.round(score)));
 }
 
 function findWeakestArea(signals: Record<RubricArea, number>) {

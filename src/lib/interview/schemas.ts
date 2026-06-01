@@ -7,6 +7,14 @@ export const InterviewModeSchema = z.enum(interviewModes);
 export const DifficultySchema = z.enum(difficulties);
 export const RubricAreaSchema = z.enum(rubricAreas);
 
+const RubricWeightsSchema = z.object({
+  Structure: z.number().min(0).max(100),
+  "Technical depth": z.number().min(0).max(100),
+  Tradeoffs: z.number().min(0).max(100),
+  "Communication clarity": z.number().min(0).max(100),
+  Completeness: z.number().min(0).max(100),
+});
+
 export const InterviewMessageSchema = z.object({
   id: z.string(),
   role: z.enum(["coach", "candidate", "system"]),
@@ -16,7 +24,7 @@ export const InterviewMessageSchema = z.object({
 
 export const RubricScoreSchema = z.object({
   area: RubricAreaSchema,
-  score: z.number().min(1).max(5),
+  score: z.number().min(0).max(5),
   maxScore: z.literal(5),
   rationale: z.string(),
 });
@@ -31,11 +39,27 @@ export const EvaluationSchema = z.object({
   weakAreaTags: z.array(RubricAreaSchema).min(1),
 });
 
+export const ProgressMemorySchema = z.object({
+  sessionsCompleted: z.number().int().min(0),
+  averageScore: z.number().min(0).max(100).optional(),
+  repeatedWeakAreas: z
+    .array(
+      z.object({
+        area: RubricAreaSchema,
+        count: z.number().int().min(1),
+      }),
+    )
+    .max(5),
+  lastSessionAt: z.string().optional(),
+});
+
 export const AgentTurnRequestSchema = z.object({
   mode: InterviewModeSchema,
   difficulty: DifficultySchema,
   prompt: z.string().min(3),
   messages: z.array(InterviewMessageSchema),
+  rubricWeights: RubricWeightsSchema.optional(),
+  progressMemory: ProgressMemorySchema.optional(),
   forceEvaluate: z.boolean().optional(),
 });
 
@@ -62,8 +86,8 @@ export const AgentTurnSchema = z.object({
   actionScores: AgentActionScoresSchema,
   coachMessage: z.string(),
   sessionStatus: z.enum(["active", "evaluated"]),
-  evaluation: EvaluationSchema.optional(),
-  nextFocusArea: RubricAreaSchema.optional(),
+  evaluation: EvaluationSchema.nullable(),
+  nextFocusArea: RubricAreaSchema.nullable(),
   source: z.enum(["local", "openai", "openai_fallback"]),
   guardrailNote: z.string(),
 });

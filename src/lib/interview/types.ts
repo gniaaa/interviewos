@@ -18,6 +18,8 @@ export type InterviewMode = (typeof interviewModes)[number];
 export type Difficulty = (typeof difficulties)[number];
 export type RubricArea = (typeof rubricAreas)[number];
 
+export type RubricWeights = Record<RubricArea, number>;
+
 export type MessageRole = "coach" | "candidate" | "system";
 
 // A transcript is just an ordered list of messages. Keeping this type small makes
@@ -75,6 +77,18 @@ export type AgentAction = "ask_follow_up" | "evaluate_answer" | "suggest_drill";
 
 export type AgentActionScores = Record<AgentAction, number>;
 
+export type WeakAreaMemory = {
+  area: RubricArea;
+  count: number;
+};
+
+export type ProgressMemory = {
+  sessionsCompleted: number;
+  averageScore?: number;
+  repeatedWeakAreas: WeakAreaMemory[];
+  lastSessionAt?: string;
+};
+
 // AgentTurn is the contract between the backend route and the UI. It always
 // includes the action chosen, the tool-style action that ran, and a short reason
 // you can show while debugging or explaining the project in an interview.
@@ -89,8 +103,8 @@ export type AgentTurn = {
   actionScores: AgentActionScores;
   coachMessage: string;
   sessionStatus: SessionStatus;
-  evaluation?: Evaluation;
-  nextFocusArea?: RubricArea;
+  evaluation: Evaluation | null;
+  nextFocusArea: RubricArea | null;
   source: "local" | "openai" | "openai_fallback";
   guardrailNote: string;
 };
@@ -102,5 +116,7 @@ export type AgentTurnRequest = {
   difficulty: Difficulty;
   prompt: string;
   messages: InterviewMessage[];
+  rubricWeights?: RubricWeights;
+  progressMemory?: ProgressMemory;
   forceEvaluate?: boolean;
 };

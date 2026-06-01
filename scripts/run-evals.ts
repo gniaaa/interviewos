@@ -92,6 +92,22 @@ const cases: Array<{
       result.toolName === "evaluate_answer" &&
       Boolean(result.evaluation?.weakAreaTags.includes("Structure")),
   },
+  // Calibration: nonsense text should not get the default weak-answer floor.
+  {
+    name: "scores gibberish as zero evidence",
+    request: {
+      mode: "System Design",
+      difficulty: "Mid",
+      prompt: "Design a URL shortener",
+      forceEvaluate: true,
+      messages: [message("candidate", "asd")],
+    },
+    expect: (result) =>
+      result.action === "evaluate_answer" &&
+      result.sessionStatus === "evaluated" &&
+      result.evaluation?.overallScore === 0 &&
+      result.evaluation.rubricScores.every((score) => score.score === 0),
+  },
   // Action: suggest_drill. Asking for a hint is a different signal than simply
   // giving a short answer, and it should route to a smaller practice rep.
   {
@@ -140,6 +156,45 @@ const cases: Array<{
       result.sessionStatus === "evaluated" &&
       Boolean(result.evaluation),
   },
+  // Settings: rubric weights should affect the overall percentage while keeping
+  // the individual 0-5 rubric scores visible for explanation.
+  {
+    name: "uses configured rubric weights for overall score",
+    request: {
+      mode: "System Design",
+      difficulty: "Mid",
+      prompt: "Design a URL shortener",
+      forceEvaluate: true,
+      rubricWeights: {
+        Structure: 50,
+        "Technical depth": 0,
+        Tradeoffs: 0,
+        "Communication clarity": 50,
+        Completeness: 0,
+      },
+      messages: [
+        message(
+          "candidate",
+          "First I would clarify requirements and constraints, then explain the request path clearly because the interviewer needs a simple sequence.",
+        ),
+      ],
+    },
+    expect: (result) => {
+      if (!result.evaluation) {
+        return false;
+      }
+
+      const scores = Object.fromEntries(
+        result.evaluation.rubricScores.map((score) => [score.area, score.score]),
+      );
+      const expectedScore = Math.round(
+        (((scores.Structure as number) / 5) * 50 +
+          ((scores["Communication clarity"] as number) / 5) * 50),
+      );
+
+      return result.evaluation.overallScore === expectedScore;
+    },
+  },
   // Guardrail: exact company-question requests should become skill-equivalent
   // practice, not fabricated insider questions.
   {
@@ -159,6 +214,35 @@ const cases: Array<{
       result.action === "suggest_drill" &&
       result.coachMessage.includes("cannot verify or fabricate") &&
       result.decisionSignals.some((signal) => signal.includes("guardrail")),
+  },
+  // Memory: saved weak areas should influence the next focus area when the
+  // current answer gives enough room for a follow-up but no urgent drill.
+  {
+    name: "uses progress memory to target repeated weak areas",
+    request: {
+      mode: "System Design",
+      difficulty: "Senior",
+      prompt: "Design YouTube",
+      progressMemory: {
+        sessionsCompleted: 5,
+        averageScore: 76,
+        repeatedWeakAreas: [
+          { area: "Tradeoffs", count: 3 },
+          { area: "Completeness", count: 2 },
+        ],
+        lastSessionAt: new Date().toISOString(),
+      },
+      messages: [
+        message(
+          "candidate",
+          "I would start with requirements and constraints, then design upload APIs, metadata storage, object storage, queues for transcoding, cache for hot metadata, and CDN playback. The database stores video metadata and users while workers process uploaded files asynchronously.",
+        ),
+      ],
+    },
+    expect: (result) =>
+      result.action === "ask_follow_up" &&
+      result.nextFocusArea === "Tradeoffs" &&
+      result.decisionSignals.some((signal) => signal.includes("memory focus")),
   },
 ];
 
