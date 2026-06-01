@@ -53,6 +53,20 @@ export const ProgressMemorySchema = z.object({
   lastSessionAt: z.string().optional(),
 });
 
+const AgentProgressMemorySchema = z.object({
+  sessionsCompleted: z.number().int().min(1),
+  averageScore: z.number().min(0).max(100),
+  repeatedWeakAreas: z
+    .array(
+      z.object({
+        area: RubricAreaSchema,
+        count: z.number().int().min(1),
+      }),
+    )
+    .max(5),
+  lastSessionAt: z.string(),
+});
+
 export const AgentTurnRequestSchema = z.object({
   mode: InterviewModeSchema,
   difficulty: DifficultySchema,
@@ -69,6 +83,13 @@ const AgentActionSchema = z.enum([
   "suggest_drill",
 ]);
 
+const AgentToolNameSchema = z.enum([
+  "ask_follow_up",
+  "evaluate_answer",
+  "suggest_drill",
+  "update_progress_memory",
+]);
+
 const AgentActionScoresSchema = z.object({
   ask_follow_up: z.number().min(0).max(100),
   evaluate_answer: z.number().min(0).max(100),
@@ -79,7 +100,8 @@ const AgentActionScoresSchema = z.object({
 // the UI indifferent to whether a turn came from a model or deterministic code.
 export const AgentTurnSchema = z.object({
   action: AgentActionSchema,
-  toolName: AgentActionSchema,
+  toolName: AgentToolNameSchema,
+  toolCalls: z.array(AgentToolNameSchema).min(1),
   decisionReason: z.string(),
   confidence: z.number().min(0).max(1),
   decisionSignals: z.array(z.string()).min(1),
@@ -88,6 +110,7 @@ export const AgentTurnSchema = z.object({
   sessionStatus: z.enum(["active", "evaluated"]),
   evaluation: EvaluationSchema.nullable(),
   nextFocusArea: RubricAreaSchema.nullable(),
+  progressMemory: AgentProgressMemorySchema.nullable(),
   source: z.enum(["local", "openai", "openai_fallback"]),
   guardrailNote: z.string(),
 });

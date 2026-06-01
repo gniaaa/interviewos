@@ -19,6 +19,7 @@ import type {
   AgentAction,
   AgentTurn,
   InterviewMessage,
+  ProgressMemory,
 } from "@/lib/interview/types";
 import { difficulties, interviewModes } from "@/lib/interview/types";
 import { cn, formatAgentAction } from "@/lib/utils";
@@ -250,7 +251,7 @@ export function InterviewPage() {
             {lastTurn ? (
               <div className="mt-3 space-y-3">
                 <InfoRow label="Decision" value={formatAgentAction(lastTurn.action)} />
-                <InfoRow label="Tool" value={formatAgentAction(lastTurn.toolName)} />
+                <InfoRow label="Primary tool" value={formatAgentAction(lastTurn.toolName)} />
                 <InfoRow label="Source" value={lastTurn.source.replace("_", " ")} />
                 <InfoRow
                   label="Confidence"
@@ -262,6 +263,10 @@ export function InterviewPage() {
                 <p className="rounded-md border border-border bg-card p-3 text-xs leading-5 text-muted-foreground">
                   {lastTurn.decisionReason}
                 </p>
+                <ToolCallList calls={lastTurn.toolCalls} />
+                {lastTurn.progressMemory && (
+                  <ProgressMemoryPreview memory={lastTurn.progressMemory} />
+                )}
                 <ActionScoreList scores={lastTurn.actionScores} />
                 <DecisionSignals signals={lastTurn.decisionSignals} />
               </div>
@@ -392,6 +397,56 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+function ToolCallList({ calls }: { calls: AgentTurn["toolCalls"] }) {
+  return (
+    <div className="rounded-md border border-border bg-card p-3">
+      <p className="text-xs font-semibold uppercase tracking-normal text-muted-foreground">
+        Tool calls
+      </p>
+      <ol className="mt-2 space-y-1.5">
+        {calls.map((call, index) => (
+          <li
+            key={`${call}_${index}`}
+            className="flex items-center justify-between gap-3 text-xs leading-5"
+          >
+            <span className="text-muted-foreground">Step {index + 1}</span>
+            <span className="font-medium">{formatAgentAction(call)}</span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+function ProgressMemoryPreview({ memory }: { memory: ProgressMemory }) {
+  return (
+    <div className="rounded-md border border-border bg-card p-3">
+      <p className="text-xs font-semibold uppercase tracking-normal text-muted-foreground">
+        Updated memory
+      </p>
+      <div className="mt-2 space-y-1.5 text-xs leading-5">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-muted-foreground">Completed</span>
+          <span className="font-medium">{memory.sessionsCompleted}</span>
+        </div>
+        {typeof memory.averageScore === "number" && (
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-muted-foreground">Average</span>
+            <span className="font-medium">{memory.averageScore}%</span>
+          </div>
+        )}
+        {memory.repeatedWeakAreas.length > 0 && (
+          <p className="pt-1 text-muted-foreground">
+            {memory.repeatedWeakAreas
+              .map((item) => `${item.area} x${item.count}`)
+              .join(", ")}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const agentActions: AgentAction[] = [
   "ask_follow_up",
   "evaluate_answer",
@@ -402,7 +457,7 @@ function ActionScoreList({ scores }: { scores: AgentTurn["actionScores"] }) {
   return (
     <div className="rounded-md border border-border bg-card p-3">
       <p className="text-xs font-semibold uppercase tracking-normal text-muted-foreground">
-        Policy scores
+        Planner scores
       </p>
       <div className="mt-3 space-y-3">
         {agentActions.map((action) => (

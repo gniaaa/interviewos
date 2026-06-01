@@ -25,7 +25,7 @@ on a 0-5 scale; the overall percentage is the weighted summary.
 
 `ask_follow_up`
 
-Use this when the session should continue. The agent policy raises this score
+Use this when the session should continue. The agent planner raises this score
 when there is an active answer and a weak rubric area that still needs probing.
 
 `evaluate_answer`
@@ -40,17 +40,23 @@ Use this when the latest answer is too thin, the candidate appears stuck, or the
 request triggers a guardrail. The coach gives a smaller practice rep before
 asking the candidate to try the original prompt again.
 
-## Agent Decision Policy
+`update_progress_memory`
 
-The local fallback is intentionally explainable. It does four things:
+Use this after evaluation to produce the next compact memory snapshot. The
+saved sessions remain the source of truth, but returning this tool result makes
+the agent's memory update explicit in the turn trace.
 
-1. Builds interview state from the transcript: turn count, word count, keyword
+## Agent Planner
+
+The local fallback is intentionally explainable. It does five things:
+
+1. Observes transcript state: turn count, word count, keyword
    signals, missing rubric areas, stuck-answer signals, and exact-company
    guardrail signals.
-2. Adds compact progress memory from recent saved sessions, such as repeated
+2. Extracts compact progress memory from recent saved sessions, such as repeated
    weak rubric areas.
 3. Scores all available actions from 0 to 100.
-4. Picks the highest-scoring action and calculates confidence from the gap
+4. Chooses the highest-scoring action and calculates confidence from the gap
    between the top scores.
 5. Returns the chosen action plus `decisionSignals`, `actionScores`, and
    `decisionReason` so the UI can show why the agent acted.
@@ -70,11 +76,12 @@ these types define the product language.
 Runtime validation for API inputs and model outputs. This is what lets the app
 trust structured JSON from either OpenAI or the local fallback.
 
-`src/lib/interview/agent.ts`
+`src/lib/interview/agent/`
 
-The deterministic local agent. It mirrors the production agent workflow:
-build state, decide action, dispatch to a tool-style function, return an
-`AgentTurn`.
+The deterministic local agent. Read it in this order:
+`index.ts`, `planner.ts`, `state.ts`, `signals.ts`, `tools/index.ts`, then
+`evaluation.ts`. That mirrors the agent workflow: observe transcript state,
+plan the next action, run one or more tool functions, and return an `AgentTurn`.
 
 `src/lib/interview/openai-agent.ts`
 

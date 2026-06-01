@@ -31,13 +31,13 @@ The first MVP is intentionally simple:
 - `src/lib/interview/types.ts` defines the core product data model.
 - `src/lib/interview/catalog.ts` stores prompts, rubric defaults, seed sessions, and demo progress data.
 - `src/lib/interview/progress-memory.ts` summarizes saved history for the coach.
-- `src/lib/interview/agent.ts` is a deterministic local coach used for demos, fallback behavior, and evals.
+- `src/lib/interview/agent/` is the deterministic local coach used for demos, fallback behavior, and evals. It has an explicit planner plus separate tool functions.
 - `src/lib/interview/openai-agent.ts` calls OpenAI structured outputs when `OPENAI_API_KEY` is present.
 - `src/lib/supabase.ts` owns Supabase auth, profile, session, and evaluation persistence.
 - `src/app/api/interview/turn/route.ts` is the backend boundary for the interview agent.
 - `scripts/run-evals.ts` checks the local agent behavior against small regression cases.
 
-This gives a clear interview story: the UI sends the transcript and session settings to a backend route, the route decides whether to ask a follow-up or evaluate, and the response is validated against a structured schema before the UI updates.
+This gives a clear interview story: the UI sends the transcript and session settings to a backend route, the agent planner decides whether to ask a follow-up, suggest a drill, or evaluate, tool functions execute that plan, and the response is validated against a structured schema before the UI updates.
 
 For a guided walkthrough of the important files and agent actions, read `docs/CODEBASE_NOTES.md`.
 For the public demo checklist and environment modes, read `docs/DEPLOYMENT.md`.

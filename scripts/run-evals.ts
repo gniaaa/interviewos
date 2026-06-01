@@ -35,6 +35,7 @@ const cases: Array<{
     expect: (result) =>
       result.action === "ask_follow_up" &&
       result.toolName === "ask_follow_up" &&
+      result.toolCalls.join(",") === "ask_follow_up" &&
       result.sessionStatus === "active" &&
       result.decisionReason.length > 0,
   },
@@ -51,6 +52,7 @@ const cases: Array<{
     expect: (result) =>
       result.action === "suggest_drill" &&
       result.toolName === "suggest_drill" &&
+      result.toolCalls.join(",") === "suggest_drill" &&
       result.sessionStatus === "active" &&
       result.nextFocusArea === "Structure",
   },
@@ -73,7 +75,9 @@ const cases: Array<{
     expect: (result) =>
       result.action === "evaluate_answer" &&
       result.toolName === "evaluate_answer" &&
+      result.toolCalls.includes("update_progress_memory") &&
       Boolean(result.evaluation) &&
+      Boolean(result.progressMemory) &&
       result.evaluation!.overallScore >= 75,
   },
   // Guardrail: even short sessions can be evaluated when the user explicitly
@@ -90,6 +94,7 @@ const cases: Array<{
     expect: (result) =>
       result.action === "evaluate_answer" &&
       result.toolName === "evaluate_answer" &&
+      result.toolCalls.includes("update_progress_memory") &&
       Boolean(result.evaluation?.weakAreaTags.includes("Structure")),
   },
   // Calibration: nonsense text should not get the default weak-answer floor.
@@ -105,6 +110,7 @@ const cases: Array<{
     expect: (result) =>
       result.action === "evaluate_answer" &&
       result.sessionStatus === "evaluated" &&
+      result.progressMemory?.sessionsCompleted === 1 &&
       result.evaluation?.overallScore === 0 &&
       result.evaluation.rubricScores.every((score) => score.score === 0),
   },
@@ -128,7 +134,7 @@ const cases: Array<{
       result.decisionSignals.some((signal) => signal.includes("stuck")) &&
       result.confidence >= 0.65,
   },
-  // Action: evaluate_answer. The policy should not keep asking follow-ups once
+  // Action: evaluate_answer. The planner should not keep asking follow-ups once
   // the transcript has enough candidate turns to produce a useful score.
   {
     name: "evaluates automatically after enough candidate turns",
@@ -154,6 +160,7 @@ const cases: Array<{
     expect: (result) =>
       result.action === "evaluate_answer" &&
       result.sessionStatus === "evaluated" &&
+      result.toolCalls.join(",") === "evaluate_answer,update_progress_memory" &&
       Boolean(result.evaluation),
   },
   // Settings: rubric weights should affect the overall percentage while keeping
@@ -192,7 +199,10 @@ const cases: Array<{
           ((scores["Communication clarity"] as number) / 5) * 50),
       );
 
-      return result.evaluation.overallScore === expectedScore;
+      return (
+        result.evaluation.overallScore === expectedScore &&
+        result.progressMemory?.averageScore === expectedScore
+      );
     },
   },
   // Guardrail: exact company-question requests should become skill-equivalent
@@ -251,7 +261,8 @@ const results = cases.map((item) => {
   const hasDecisionMetadata =
     result.confidence > 0 &&
     result.decisionSignals.length > 0 &&
-    result.actionScores[result.action] > 0;
+    result.actionScores[result.action] > 0 &&
+    result.toolCalls.includes(result.toolName);
   const passed =
     item.expect(result) &&
     hasDecisionMetadata &&
@@ -262,7 +273,7 @@ const results = cases.map((item) => {
     case: item.name,
     passed,
     action: result.action,
-    tool: result.toolName,
+    tool: result.toolCalls.join(" -> "),
     confidence: result.confidence,
     score: result.evaluation?.overallScore ?? "-",
     weakAreas: result.evaluation?.weakAreaTags.join(", ") ?? result.nextFocusArea ?? "-",

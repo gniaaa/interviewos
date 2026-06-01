@@ -75,6 +75,7 @@ export type PromptItem = {
 };
 
 export type AgentAction = "ask_follow_up" | "evaluate_answer" | "suggest_drill";
+export type AgentToolName = AgentAction | "update_progress_memory";
 
 export type AgentActionScores = Record<AgentAction, number>;
 
@@ -97,7 +98,8 @@ export type ProgressMemory = {
 // model response or a single hard-coded branch.
 export type AgentTurn = {
   action: AgentAction;
-  toolName: AgentAction;
+  toolName: AgentToolName;
+  toolCalls: AgentToolName[];
   decisionReason: string;
   confidence: number;
   decisionSignals: string[];
@@ -106,6 +108,7 @@ export type AgentTurn = {
   sessionStatus: AgentSessionStatus;
   evaluation: Evaluation | null;
   nextFocusArea: RubricArea | null;
+  progressMemory: ProgressMemory | null;
   source: "local" | "openai" | "openai_fallback";
   guardrailNote: string;
 };

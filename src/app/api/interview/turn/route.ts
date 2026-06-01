@@ -110,7 +110,10 @@ function isValidTurnForRequest(
   return (
     turn.action === "evaluate_answer" &&
     turn.toolName === "evaluate_answer" &&
+    turn.toolCalls.includes("evaluate_answer") &&
+    turn.toolCalls.includes("update_progress_memory") &&
     turn.sessionStatus === "evaluated" &&
-    Boolean(turn.evaluation)
+    Boolean(turn.evaluation) &&
+    Boolean(turn.progressMemory)
   );
 }
