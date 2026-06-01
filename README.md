@@ -2,6 +2,11 @@
 
 InterviewOS is an AI interview coach for software engineering interview prep. The MVP focuses on system design practice while keeping behavioral and coding explanation modes in the same product shape.
 
+Live demo: https://interviewos-two.vercel.app
+
+Built with Next.js, TypeScript, Supabase, OpenAI structured-output integration,
+and a deterministic local agent fallback for no-cost public demos.
+
 ## What is built
 
 - Dashboard with streak, sessions completed, average score, weak areas, recommendations, and recent sessions.
