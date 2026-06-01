@@ -9,9 +9,11 @@ InterviewOS is an AI interview coach for software engineering interview prep. Th
 - Adaptive follow-up loop that maintains session state.
 - Structured rubric evaluation with overall score, dimension scores, strengths, improvement areas, drills, and follow-up questions.
 - Progress view with score trend, weak tags, history, and filters.
-- Settings view for rubric text, focus areas, target role/company, and AI model placeholder.
+- Settings view for rubric weights, focus areas, target role/company, and AI model placeholder.
 - Local eval harness for quality checks.
-- OpenAI/Supabase integration points without requiring credentials for local demo use.
+- Supabase persistence for sessions, messages, evaluations, rubric scores, profile settings, and rubric weights.
+- Progress-aware coaching that uses saved weak areas to target future follow-ups.
+- OpenAI integration point without requiring credentials for local demo use.
 
 ## Architecture
 
@@ -23,14 +25,17 @@ The first MVP is intentionally simple:
 - `src/components/interviewos/pages/*` contains focused page-level UI.
 - `src/lib/interview/types.ts` defines the core product data model.
 - `src/lib/interview/catalog.ts` stores prompts, rubric defaults, seed sessions, and demo progress data.
+- `src/lib/interview/progress-memory.ts` summarizes saved history for the coach.
 - `src/lib/interview/agent.ts` is a deterministic local coach used for demos, fallback behavior, and evals.
 - `src/lib/interview/openai-agent.ts` calls OpenAI structured outputs when `OPENAI_API_KEY` is present.
+- `src/lib/supabase.ts` owns Supabase auth, profile, session, and evaluation persistence.
 - `src/app/api/interview/turn/route.ts` is the backend boundary for the interview agent.
 - `scripts/run-evals.ts` checks the local agent behavior against small regression cases.
 
 This gives a clear interview story: the UI sends the transcript and session settings to a backend route, the route decides whether to ask a follow-up or evaluate, and the response is validated against a structured schema before the UI updates.
 
 For a guided walkthrough of the important files and agent actions, read `docs/CODEBASE_NOTES.md`.
+For the public demo checklist and environment modes, read `docs/DEPLOYMENT.md`.
 
 ## Local setup
 
@@ -51,18 +56,48 @@ With no API key, the app uses the local deterministic coach. With `OPENAI_API_KE
 
 ## Quality checks
 
+Codex can run the static and agent checks in restricted environments:
+
 ```bash
-npm run lint
-npm run build
-npm run evals
+npm run check
 ```
+
+Check which demo mode your current environment will use:
+
+```bash
+npm run demo:check
+```
+
+Full local or CI validation runs the browser flow too:
+
+```bash
+npx playwright install chromium
+npm run quality
+```
+
+`npm run test:e2e` starts the app on port `3100` with
+`INTERVIEWOS_AGENT_SOURCE=local`, so the flow is deterministic even when an
+OpenAI key is present.
+
+GitHub Actions runs the full quality gate on pushes to `main` and pull requests.
+
+Before deploying a resume demo, run:
+
+```bash
+npm run deploy:check
+```
+
+That stricter check expects Supabase env vars because deployed users should be
+able to save sessions.
 
 ## Supabase persistence
 
-The schema lives in:
+The schema migrations live in:
 
 ```bash
 supabase/migrations/20260601130000_initial_interviewos_schema.sql
+supabase/migrations/20260601204500_allow_zero_rubric_scores.sql
+supabase/migrations/20260601211500_add_profile_rubric_weights.sql
 ```
 
 It creates:
@@ -81,7 +116,7 @@ NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 ```
 
-With those values present, the app syncs new sessions, transcript messages, evaluations, rubric scores, and profile settings. Without them, it keeps using local demo data.
+With those values present, the app syncs new sessions, transcript messages, evaluations, rubric scores, profile settings, and saved rubric weights. Without them, it keeps using local demo data.
 
 ## Lovable import workflow
 

@@ -16,6 +16,11 @@ structured action at a time.
 8. The provider saves the updated session through `src/lib/supabase.ts` when
    Supabase is configured, while still keeping a local fallback copy.
 
+Rubric weights follow the same path. The settings page edits `rubricWeights` in
+the provider, profile saving stores them on `profiles.rubric_weights`, and the
+provider includes them in each evaluation request. Individual rubric scores stay
+on a 0-5 scale; the overall percentage is the weighted summary.
+
 ## Agent Actions
 
 `ask_follow_up`
@@ -42,10 +47,12 @@ The local fallback is intentionally explainable. It does four things:
 1. Builds interview state from the transcript: turn count, word count, keyword
    signals, missing rubric areas, stuck-answer signals, and exact-company
    guardrail signals.
-2. Scores all available actions from 0 to 100.
-3. Picks the highest-scoring action and calculates confidence from the gap
+2. Adds compact progress memory from recent saved sessions, such as repeated
+   weak rubric areas.
+3. Scores all available actions from 0 to 100.
+4. Picks the highest-scoring action and calculates confidence from the gap
    between the top scores.
-4. Returns the chosen action plus `decisionSignals`, `actionScores`, and
+5. Returns the chosen action plus `decisionSignals`, `actionScores`, and
    `decisionReason` so the UI can show why the agent acted.
 
 This is the simple version of an agent loop: observe state, decide between tools,
@@ -74,10 +81,17 @@ build state, decide action, dispatch to a tool-style function, return an
 The OpenAI structured-output path. It asks the model to return the same
 `AgentTurn` shape as the local fallback.
 
+`src/lib/interview/progress-memory.ts`
+
+Builds the compact long-term memory object sent to the agent. It summarizes
+completed sessions, average score, repeated weak areas, and the latest completed
+session timestamp.
+
 `src/app/api/interview/turn/route.ts`
 
 The backend boundary. UI code should call this route instead of calling OpenAI
-directly.
+directly. Set `INTERVIEWOS_AGENT_SOURCE=local` when running browser flow tests
+so the route uses the deterministic local agent even if an OpenAI key exists.
 
 `src/lib/supabase.ts`
 
@@ -95,7 +109,13 @@ current `auth.uid()`.
 
 The client state layer. It uses local storage as a fallback cache and Supabase
 as the real persistence layer when environment variables and anonymous auth are
-ready.
+ready. It also owns short-lived action feedback such as loading, saving, and
+evaluation notices so buttons do not feel silent.
+
+The provider should not push routes directly. It updates interview state, and
+route-level pages decide whether to navigate after an action. This keeps session
+logic easier to test and avoids hidden router side effects when fast browser
+tests click through the interview flow.
 
 `src/components/interviewos/app-shell.tsx`
 
@@ -113,6 +133,17 @@ and settings.
 Small regression checks for agent routing and guardrails. These are intentionally
 simple now and should grow as the coach gets smarter.
 
+`tests/interview-flow.spec.mjs`
+
+The first browser-level app-flow test. It starts a mock interview, submits an
+answer with Enter, ends the session, and verifies the evaluation page renders.
+
+`scripts/check-demo-env.mjs`
+
+Summarizes which agent and persistence modes the current environment will use.
+Use `npm run demo:check` for a friendly status check and `npm run deploy:check`
+before sharing a public demo link.
+
 ## Supabase Persistence
 
 The app does not require Supabase credentials for local UI work. If
@@ -126,6 +157,20 @@ user. If none exists, it tries anonymous sign-in. That gives the demo a real
 Important Supabase dashboard setting: enable anonymous sign-ins under Auth before
 expecting browser session sync.
 
+For a resume demo, set `INTERVIEWOS_AGENT_SOURCE=local` so reviewers can use the
+deployed app without spending OpenAI quota. The OpenAI path stays available by
+removing that override and setting `OPENAI_API_KEY`.
+
 The first persisted objects are `profiles`, `interview_sessions`,
-`interview_messages`, `evaluations`, and `rubric_scores`. `practice_goals` is in
-the schema now so we can add weekly goals without another data-model rewrite.
+`interview_messages`, `evaluations`, and `rubric_scores`. Profile rows store
+coaching preferences such as target role, focus areas, and rubric weights.
+`practice_goals` is in the schema now so we can add weekly goals without another
+data-model rewrite.
+
+## Progress-Aware Coaching
+
+The provider turns saved evaluated sessions into `ProgressMemory` before each
+agent turn. The current transcript still matters most, but repeated weak areas
+can nudge the next follow-up target when the current answer is otherwise good
+enough to continue. The Agent state panel shows this as a `memory focus` decision
+signal.
