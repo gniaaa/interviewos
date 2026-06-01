@@ -12,6 +12,7 @@
 
 # testing
 /coverage
+/.tmp/
 /playwright-report/
 /test-results/
 
