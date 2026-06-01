@@ -46,6 +46,7 @@ type PendingAction =
   | "starting_session"
   | "submitting_answer"
   | "evaluating_session"
+  | "abandoning_session"
   | "saving_settings"
   | null;
 
@@ -70,6 +71,7 @@ type InterviewOSContextValue = {
   targetCompany: string;
   targetRole: string;
   changeMode: (mode: InterviewMode) => void;
+  discardSession: () => Promise<void>;
   endSession: () => Promise<void>;
   openSession: (session: InterviewSession) => void;
   saveSettings: () => Promise<void>;
@@ -125,7 +127,10 @@ export function InterviewOSProvider({ children }: { children: ReactNode }) {
 
   const selectedPrompt =
     modePrompts.find((prompt) => prompt.id === promptId) ?? modePrompts[0];
-  const latestEvaluation = session?.evaluation ?? sessions[0]?.evaluation;
+  const latestEvaluation =
+    session?.evaluation ??
+    sessions.find((savedSession) => savedSession.status === "evaluated")
+      ?.evaluation;
   const progressMemory = useMemo(
     () => buildProgressMemory(sessions),
     [sessions],
@@ -261,10 +266,38 @@ export function InterviewOSProvider({ children }: { children: ReactNode }) {
     }, durationMs);
   }
 
+  function upsertSessionInHistory(sessionToStore: InterviewSession) {
+    setSessions((currentSessions) => [
+      sessionToStore,
+      ...currentSessions.filter((item) => item.id !== sessionToStore.id),
+    ]);
+  }
+
+  function markSessionAbandoned(sessionToAbandon: InterviewSession) {
+    if (sessionToAbandon.status !== "active") {
+      return;
+    }
+
+    const abandonedSession: InterviewSession = {
+      ...sessionToAbandon,
+      status: "abandoned",
+    };
+
+    upsertSessionInHistory(abandonedSession);
+    void persistSession(abandonedSession);
+  }
+
   function startSession(promptOverride?: PromptItem) {
     const prompt = promptOverride ?? selectedPrompt;
     setPendingAction("starting_session");
     showActionNotice("Starting interview session...", 0);
+
+    // Starting over should close the previous attempt as incomplete instead of
+    // leaving a permanent active row in Supabase.
+    if (session?.status === "active") {
+      markSessionAbandoned(session);
+    }
+
     const nextSession: InterviewSession = {
       id: uid("session"),
       mode: prompt.mode,
@@ -290,8 +323,30 @@ export function InterviewOSProvider({ children }: { children: ReactNode }) {
     setLastTurn(null);
   }
 
+  async function discardSession() {
+    if (!session || isThinking || session.status !== "active") {
+      return;
+    }
+
+    setPendingAction("abandoning_session");
+    showActionNotice("Discarding session...", 0);
+
+    const abandonedSession: InterviewSession = {
+      ...session,
+      status: "abandoned",
+    };
+
+    setSession(null);
+    setLastTurn(null);
+    setInput("");
+    upsertSessionInHistory(abandonedSession);
+    await persistSession(abandonedSession);
+    setPendingAction(null);
+    showActionNotice("Session discarded.");
+  }
+
   async function submitAnswer() {
-    if (!session || !input.trim() || isThinking) {
+    if (!session || !input.trim() || isThinking || session.status !== "active") {
       return;
     }
 
@@ -323,7 +378,7 @@ export function InterviewOSProvider({ children }: { children: ReactNode }) {
   }
 
   async function endSession() {
-    if (!session || isThinking || session.status === "evaluated") {
+    if (!session || isThinking || session.status !== "active") {
       return;
     }
 
@@ -366,10 +421,7 @@ export function InterviewOSProvider({ children }: { children: ReactNode }) {
     void persistSession(updatedSession);
 
     if (updatedSession.status === "evaluated") {
-      setSessions((currentSessions) => [
-        updatedSession,
-        ...currentSessions.filter((item) => item.id !== updatedSession.id),
-      ]);
+      upsertSessionInHistory(updatedSession);
     }
   }
 
@@ -487,6 +539,7 @@ export function InterviewOSProvider({ children }: { children: ReactNode }) {
         targetCompany,
         targetRole,
         changeMode,
+        discardSession,
         endSession,
         openSession,
         saveSettings,

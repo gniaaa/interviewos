@@ -19,10 +19,14 @@ export function ProgressPage() {
     sessions,
     setDifficulty,
   } = useInterviewOS();
-  const filteredSessions = sessions.filter(
+  const completedSessions = sessions.filter(
+    (session) => session.status === "evaluated",
+  );
+  const filteredSessions = completedSessions.filter(
     (session) => session.mode === mode && session.difficulty === difficulty,
   );
-  const visibleSessions = filteredSessions.length > 0 ? filteredSessions : sessions;
+  const visibleSessions =
+    filteredSessions.length > 0 ? filteredSessions : completedSessions;
 
   function openHistorySession(session: InterviewSession) {
     openSession(session);

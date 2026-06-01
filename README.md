@@ -98,6 +98,7 @@ The schema migrations live in:
 supabase/migrations/20260601130000_initial_interviewos_schema.sql
 supabase/migrations/20260601204500_allow_zero_rubric_scores.sql
 supabase/migrations/20260601211500_add_profile_rubric_weights.sql
+supabase/migrations/20260601224500_add_abandoned_session_status.sql
 ```
 
 It creates:
@@ -117,6 +118,10 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 ```
 
 With those values present, the app syncs new sessions, transcript messages, evaluations, rubric scores, profile settings, and saved rubric weights. Without them, it keeps using local demo data.
+
+Session lifecycle is explicit: `active` attempts can become `evaluated` when the
+coach scores them, or `abandoned` when the user discards/replaces them. Abandoned
+sessions are preserved in storage but do not count as completed practice.
 
 ## Lovable import workflow
 

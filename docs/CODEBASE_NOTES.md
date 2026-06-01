@@ -167,6 +167,11 @@ coaching preferences such as target role, focus areas, and rubric weights.
 `practice_goals` is in the schema now so we can add weekly goals without another
 data-model rewrite.
 
+Session status is a lifecycle field, not just a scoring flag. New sessions start
+as `active`; scored sessions become `evaluated`; discarded or replaced attempts
+become `abandoned`. Dashboard and progress views focus on evaluated sessions so
+incomplete attempts do not inflate practice history.
+
 ## Progress-Aware Coaching
 
 The provider turns saved evaluated sessions into `ProgressMemory` before each

@@ -28,6 +28,7 @@ const pendingActionLabels = {
   starting_session: "Starting session",
   submitting_answer: "Coach thinking",
   evaluating_session: "Evaluating",
+  abandoning_session: "Discarding session",
   saving_settings: "Saving settings",
 } as const;
 

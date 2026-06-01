@@ -19,7 +19,8 @@ create type public.interview_difficulty as enum (
 
 create type public.session_status as enum (
   'active',
-  'evaluated'
+  'evaluated',
+  'abandoned'
 );
 
 create type public.message_role as enum (

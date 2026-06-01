@@ -31,3 +31,18 @@ test("candidate can complete a mock interview and view an evaluation", async ({
   await expect(page.getByText("Rubric breakdown")).toBeVisible();
   await expect(page.getByText("Suggested next drill")).toBeVisible();
 });
+
+test("candidate can discard an active interview without scoring it", async ({
+  page,
+}) => {
+  await page.goto("/interview");
+  await expect(page.locator("html[data-interviewos-ready='true']")).toBeAttached();
+
+  await page.getByRole("button", { name: "Begin interview" }).click();
+  await expect(page.getByText("Let's practice: Design a URL shortener")).toBeVisible();
+
+  await page.getByRole("button", { name: "Discard" }).click();
+  await expect(page.getByRole("heading", { name: "Practice workspace" })).toBeVisible();
+  await expect(page.getByText("Session discarded.").first()).toBeVisible();
+  await expect(page.getByPlaceholder("Begin an interview first")).toBeDisabled();
+});

@@ -25,6 +25,9 @@ import { cn, formatScore, formatSessionDate } from "@/lib/utils";
 export function DashboardPage() {
   const { openSession, sessions, startSession } = useInterviewOS();
   const router = useRouter();
+  const completedSessions = sessions.filter(
+    (session) => session.status === "evaluated",
+  );
 
   function startRecommended() {
     startSession(
@@ -94,7 +97,10 @@ export function DashboardPage() {
             </div>
           </section>
 
-          <RecentSessionsTable sessions={sessions} onOpenSession={openRecentSession} />
+          <RecentSessionsTable
+            sessions={completedSessions}
+            onOpenSession={openRecentSession}
+          />
         </section>
 
         <aside className="space-y-4">

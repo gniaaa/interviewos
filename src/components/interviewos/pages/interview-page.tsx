@@ -8,6 +8,7 @@ import {
   Send,
   SlidersHorizontal,
   StopCircle,
+  Trash2,
   User,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -26,6 +27,7 @@ export function InterviewPage() {
   const {
     actionNotice,
     changeMode,
+    discardSession,
     difficulty,
     endSession,
     input,
@@ -47,11 +49,13 @@ export function InterviewPage() {
   const isSubmitting = pendingAction === "submitting_answer";
   const isEvaluating = pendingAction === "evaluating_session";
   const isStarting = pendingAction === "starting_session";
+  const isAbandoning = pendingAction === "abandoning_session";
+  const isSessionActionPending = isStarting || isEvaluating || isAbandoning;
   const canSubmit =
     Boolean(session) &&
     Boolean(input.trim()) &&
     !isThinking &&
-    session?.status !== "evaluated";
+    session?.status === "active";
 
   useEffect(() => {
     if (session?.status === "evaluated") {
@@ -71,7 +75,7 @@ export function InterviewPage() {
               <button
                 type="button"
                 onClick={() => startSession()}
-                disabled={isThinking || isStarting}
+                disabled={isThinking || isSessionActionPending}
                 className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-sm font-semibold hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <RotateCw className="size-4" aria-hidden="true" />
@@ -79,8 +83,22 @@ export function InterviewPage() {
               </button>
               <button
                 type="button"
+                onClick={discardSession}
+                disabled={isThinking || isSessionActionPending || session.status !== "active"}
+                aria-busy={isAbandoning}
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-sm font-semibold hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isAbandoning ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Trash2 className="size-4" aria-hidden="true" />
+                )}
+                {isAbandoning ? "Discarding..." : "Discard"}
+              </button>
+              <button
+                type="button"
                 onClick={endSession}
-                disabled={isThinking || session.status === "evaluated"}
+                disabled={isThinking || isSessionActionPending || session.status !== "active"}
                 aria-busy={isEvaluating}
                 className="inline-flex h-9 items-center gap-2 rounded-md bg-destructive px-3 text-sm font-semibold text-destructive-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -89,11 +107,11 @@ export function InterviewPage() {
                 ) : (
                   <StopCircle className="size-4" aria-hidden="true" />
                 )}
-                {session.status === "evaluated"
-                  ? "Evaluated"
-                  : isEvaluating
+                {isEvaluating
                     ? "Evaluating..."
-                    : "End & evaluate"}
+                    : session.status === "evaluated"
+                      ? "Evaluated"
+                      : "End & evaluate"}
               </button>
             </>
           ) : null
@@ -130,7 +148,7 @@ export function InterviewPage() {
           <button
             type="button"
             onClick={() => startSession()}
-            disabled={isThinking || isStarting}
+            disabled={isThinking || isSessionActionPending}
             aria-busy={isStarting}
             className="ml-auto inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -194,13 +212,15 @@ export function InterviewPage() {
 
                       void submitAnswer();
                     }}
-                    disabled={!session || isThinking || session.status === "evaluated"}
+                    disabled={!session || isThinking || session.status !== "active"}
                     placeholder={
                       !session
                         ? "Begin an interview first"
                         : session.status === "evaluated"
                           ? "This session has been evaluated"
-                          : "Type your answer as the candidate..."
+                          : session.status === "abandoned"
+                            ? "This session was discarded"
+                            : "Type your answer as the candidate..."
                     }
                     className="min-h-24 flex-1 resize-none rounded-md border border-input bg-card px-3 py-2 text-sm leading-6 outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:bg-muted/60"
                   />

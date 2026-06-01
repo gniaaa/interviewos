@@ -50,9 +50,10 @@ export type Evaluation = {
   weakAreaTags: RubricArea[];
 };
 
-// A session starts active, then becomes evaluated once the agent chooses the
-// evaluate_answer action.
-export type SessionStatus = "active" | "evaluated";
+// A session starts active. It becomes evaluated when the agent scores it, or
+// abandoned when the user intentionally discards it or starts over.
+export type SessionStatus = "active" | "evaluated" | "abandoned";
+export type AgentSessionStatus = Extract<SessionStatus, "active" | "evaluated">;
 
 export type InterviewSession = {
   id: string;
@@ -102,7 +103,7 @@ export type AgentTurn = {
   decisionSignals: string[];
   actionScores: AgentActionScores;
   coachMessage: string;
-  sessionStatus: SessionStatus;
+  sessionStatus: AgentSessionStatus;
   evaluation: Evaluation | null;
   nextFocusArea: RubricArea | null;
   source: "local" | "openai" | "openai_fallback";
