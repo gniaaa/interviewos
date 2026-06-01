@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f7f8f8;
+  --foreground: #1d2733;
+  --card: #ffffff;
+  --card-foreground: #1d2733;
+  --popover: #ffffff;
+  --popover-foreground: #1d2733;
+  --primary: #14746f;
+  --primary-foreground: #f8fffd;
+  --secondary: #eef2f3;
+  --secondary-foreground: #26323f;
+  --muted: #eef2f3;
+  --muted-foreground: #64717f;
+  --accent: #e8f5f2;
+  --accent-foreground: #1b5c58;
+  --destructive: #c24135;
+  --destructive-foreground: #fff8f7;
+  --success: #21875b;
+  --success-foreground: #f6fff9;
+  --warning: #b7791f;
+  --warning-foreground: #2d1f08;
+  --border: #dfe5e7;
+  --input: #d3dcdf;
+  --ring: #14746f;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --font-sans: Arial, Helvetica, sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: #ccfbf1;
+  color: #0f172a;
+}
