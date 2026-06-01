@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Save, X } from "lucide-react";
+import { Loader2, Plus, Save, X } from "lucide-react";
 import { useState } from "react";
 import { PageHeader } from "@/components/interviewos/page-header";
 import { useInterviewOS } from "@/components/interviewos/provider";
@@ -9,7 +9,10 @@ import { cn } from "@/lib/utils";
 
 export function SettingsPage() {
   const {
+    actionNotice,
+    pendingAction,
     persistenceDetail,
+    rubricWeights,
     saveSettings,
     selectedFocusAreas,
     setSelectedFocusAreas,
@@ -17,14 +20,21 @@ export function SettingsPage() {
     setTargetRole,
     targetCompany,
     targetRole,
+    updateRubricWeight,
   } = useInterviewOS();
-  const [weights, setWeights] = useState<Record<string, number>>(() =>
-    Object.fromEntries(defaultRubric.map((rubric) => [rubric.area, rubric.weight])),
-  );
   const [newFocusArea, setNewFocusArea] = useState("");
   const [provider, setProvider] = useState("OpenAI");
   const [model, setModel] = useState("OPENAI_MODEL");
-  const totalWeight = Object.values(weights).reduce((sum, value) => sum + value, 0);
+  const totalWeight = Object.values(rubricWeights).reduce(
+    (sum, value) => sum + value,
+    0,
+  );
+  const isSavingSettings = pendingAction === "saving_settings";
+  const canSaveSettings = !isSavingSettings && totalWeight === 100;
+  const settingsStatus =
+    totalWeight === 100
+      ? (actionNotice ?? persistenceDetail)
+      : "Rubric weights must total 100% before saving.";
 
   function toggleFocusArea(area: string) {
     setSelectedFocusAreas(
@@ -54,10 +64,21 @@ export function SettingsPage() {
           <button
             type="button"
             onClick={saveSettings}
-            className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+            disabled={!canSaveSettings}
+            aria-busy={isSavingSettings}
+            title={
+              totalWeight === 100
+                ? "Save settings"
+                : "Rubric weights must total 100% before saving"
+            }
+            className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <Save className="size-4" aria-hidden="true" />
-            Save settings
+            {isSavingSettings ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <Save className="size-4" aria-hidden="true" />
+            )}
+            {isSavingSettings ? "Saving..." : "Save settings"}
           </button>
         }
       />
@@ -90,20 +111,17 @@ export function SettingsPage() {
                     </p>
                   </div>
                   <span className="font-mono text-sm font-semibold text-primary">
-                    {weights[rubric.area]}%
+                    {rubricWeights[rubric.area]}%
                   </span>
                 </div>
                 <input
                   type="range"
-                  value={weights[rubric.area]}
+                  value={rubricWeights[rubric.area]}
                   min={0}
                   max={50}
                   step={5}
                   onChange={(event) =>
-                    setWeights((current) => ({
-                      ...current,
-                      [rubric.area]: Number(event.target.value),
-                    }))
+                    updateRubricWeight(rubric.area, Number(event.target.value))
                   }
                   className="mt-4 w-full accent-primary"
                 />
@@ -188,7 +206,7 @@ export function SettingsPage() {
               />
             </div>
             <p className="mt-3 text-xs leading-5 text-muted-foreground">
-              {persistenceDetail}
+              {settingsStatus}
             </p>
           </section>
 

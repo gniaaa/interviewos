@@ -5,6 +5,7 @@ import {
   BrainCircuit,
   ClipboardCheck,
   LayoutDashboard,
+  Loader2,
   MessageSquareText,
   Settings,
   Sparkles,
@@ -23,11 +24,29 @@ const navItems = [
   { label: "Settings", href: "/settings", icon: Settings },
 ];
 
+const pendingActionLabels = {
+  starting_session: "Starting session",
+  submitting_answer: "Coach thinking",
+  evaluating_session: "Evaluating",
+  saving_settings: "Saving settings",
+} as const;
+
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { persistenceDetail, persistenceStatus } = useInterviewOS();
+  const { actionNotice, pendingAction, persistenceDetail, persistenceStatus } =
+    useInterviewOS();
+  const isBusy = Boolean(pendingAction) || persistenceStatus === "checking";
+  const statusTitle = actionNotice ?? persistenceDetail;
+  const actionNoticeIsWarning =
+    actionNotice?.toLowerCase().includes("failed") ||
+    actionNotice?.toLowerCase().includes("must total") ||
+    actionNotice?.toLowerCase().includes("migration");
   const persistenceLabel =
-    persistenceStatus === "checking"
+    pendingAction !== null
+      ? pendingActionLabels[pendingAction]
+      : actionNotice
+        ? actionNotice.replace(/\.$/, "")
+      : persistenceStatus === "checking"
       ? "Checking storage"
       : persistenceStatus === "supabase"
         ? "Supabase synced"
@@ -35,7 +54,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           ? "Local fallback"
           : "Local demo data";
   const persistenceClassName =
-    persistenceStatus === "supabase"
+    pendingAction !== null
+      ? "bg-primary/10 text-primary"
+      : actionNotice
+        ? actionNoticeIsWarning
+          ? "bg-warning/10 text-warning"
+          : "bg-success/10 text-success"
+      : persistenceStatus === "supabase"
       ? "bg-success/10 text-success"
       : persistenceStatus === "error"
         ? "bg-warning/10 text-warning"
@@ -112,11 +137,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className="ml-auto flex items-center gap-2">
               <span
                 className={cn(
-                  "rounded-full px-2 py-1 text-xs font-semibold",
+                  "inline-flex max-w-[min(70vw,320px)] items-center gap-1.5 truncate rounded-full px-2 py-1 text-xs font-semibold",
                   persistenceClassName,
                 )}
-                title={persistenceDetail}
+                title={statusTitle}
               >
+                {isBusy && <Loader2 className="size-3 animate-spin" aria-hidden="true" />}
                 {persistenceLabel}
               </span>
             </div>

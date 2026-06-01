@@ -1,6 +1,7 @@
 "use client";
 
 import { History, Target } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/interviewos/page-header";
 import { useInterviewOS } from "@/components/interviewos/provider";
 import { skillTrendData, weakAreaInsights } from "@/lib/interview/catalog";
@@ -9,6 +10,7 @@ import { difficulties, interviewModes } from "@/lib/interview/types";
 import { formatScore, formatSessionDate } from "@/lib/utils";
 
 export function ProgressPage() {
+  const router = useRouter();
   const {
     changeMode,
     difficulty,
@@ -21,6 +23,11 @@ export function ProgressPage() {
     (session) => session.mode === mode && session.difficulty === difficulty,
   );
   const visibleSessions = filteredSessions.length > 0 ? filteredSessions : sessions;
+
+  function openHistorySession(session: InterviewSession) {
+    openSession(session);
+    router.push("/evaluation");
+  }
 
   return (
     <>
@@ -47,7 +54,7 @@ export function ProgressPage() {
       </section>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_330px]">
-        <SessionHistory sessions={visibleSessions} onOpenSession={openSession} />
+        <SessionHistory sessions={visibleSessions} onOpenSession={openHistorySession} />
         <WeakAreaFrequency />
       </div>
     </>

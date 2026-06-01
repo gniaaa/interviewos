@@ -10,6 +10,7 @@ import {
   Target,
   TrendingUp,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/interviewos/page-header";
 import { useInterviewOS } from "@/components/interviewos/provider";
 import {
@@ -23,11 +24,18 @@ import { cn, formatScore, formatSessionDate } from "@/lib/utils";
 
 export function DashboardPage() {
   const { openSession, sessions, startSession } = useInterviewOS();
+  const router = useRouter();
 
   function startRecommended() {
     startSession(
       promptLibrary.find((prompt) => prompt.title === practiceStats.recommendedPrompt),
     );
+    router.push("/interview");
+  }
+
+  function openRecentSession(session: InterviewSession) {
+    openSession(session);
+    router.push("/evaluation");
   }
 
   return (
@@ -86,7 +94,7 @@ export function DashboardPage() {
             </div>
           </section>
 
-          <RecentSessionsTable sessions={sessions} onOpenSession={openSession} />
+          <RecentSessionsTable sessions={sessions} onOpenSession={openRecentSession} />
         </section>
 
         <aside className="space-y-4">

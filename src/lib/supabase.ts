@@ -9,11 +9,14 @@ import type {
   MessageRole,
   RubricArea,
   RubricScore,
+  RubricWeights,
   SessionStatus,
 } from "@/lib/interview/types";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const isSupabaseDisabled =
+  process.env.NEXT_PUBLIC_INTERVIEWOS_DISABLE_SUPABASE === "true";
 
 let cachedBrowserClient: SupabaseClient | null | undefined;
 
@@ -23,7 +26,13 @@ export type SupabaseProfile = {
   targetRole: string;
   targetCompany: string;
   focusAreas: string[];
+  rubricWeights?: RubricWeights;
 };
+
+export type SupabaseProfileSaveResult =
+  | "saved"
+  | "saved_without_rubric_weights"
+  | false;
 
 type SupabaseSessionRow = {
   id: string;
@@ -69,10 +78,11 @@ type SupabaseProfileRow = {
   target_role: string;
   target_company: string;
   focus_areas: string[];
+  rubric_weights: Record<string, unknown> | null;
 };
 
 export function isSupabaseConfigured() {
-  return Boolean(supabaseUrl && supabaseAnonKey);
+  return Boolean(!isSupabaseDisabled && supabaseUrl && supabaseAnonKey);
 }
 
 export function createSupabaseBrowserClient() {
@@ -80,7 +90,7 @@ export function createSupabaseBrowserClient() {
     return cachedBrowserClient;
   }
 
-  if (!supabaseUrl || !supabaseAnonKey) {
+  if (isSupabaseDisabled || !supabaseUrl || !supabaseAnonKey) {
     cachedBrowserClient = null;
     return cachedBrowserClient;
   }
@@ -100,16 +110,18 @@ export async function getSupabaseUserConnection() {
   }
 
   const {
-    data: { user },
-    error: getUserError,
-  } = await supabase.auth.getUser();
+    data: { session },
+    error: getSessionError,
+  } = await supabase.auth.getSession();
 
-  if (getUserError) {
-    throw getUserError;
+  if (getSessionError) {
+    throw getSessionError;
   }
 
-  if (user) {
-    return { supabase, userId: user.id };
+  // First-time visitors have no session yet. That is expected in the anonymous
+  // demo flow, so only reuse a user when Supabase already has one cached.
+  if (session?.user) {
+    return { supabase, userId: session.user.id };
   }
 
   const {
@@ -247,12 +259,42 @@ export async function loadProfileFromSupabase() {
 
   const { data, error } = await connection.supabase
     .from("profiles")
-    .select("target_role, target_company, focus_areas")
+    .select("target_role, target_company, focus_areas, rubric_weights")
     .eq("user_id", connection.userId)
     .maybeSingle();
 
   if (error) {
-    throw error;
+    if (!isMissingRubricWeightsColumnError(error)) {
+      throw error;
+    }
+
+    // Older Supabase projects may not have the rubric_weights migration yet.
+    // Load the rest of the profile instead of dropping into full local fallback.
+    const { data: legacyData, error: legacyError } = await connection.supabase
+      .from("profiles")
+      .select("target_role, target_company, focus_areas")
+      .eq("user_id", connection.userId)
+      .maybeSingle();
+
+    if (legacyError) {
+      throw legacyError;
+    }
+
+    if (!legacyData) {
+      return null;
+    }
+
+    const legacyProfile = legacyData as Omit<
+      SupabaseProfileRow,
+      "rubric_weights"
+    >;
+
+    return {
+      targetRole: legacyProfile.target_role,
+      targetCompany: legacyProfile.target_company,
+      focusAreas: legacyProfile.focus_areas,
+      rubricWeights: undefined,
+    };
   }
 
   if (!data) {
@@ -265,10 +307,13 @@ export async function loadProfileFromSupabase() {
     targetRole: profile.target_role,
     targetCompany: profile.target_company,
     focusAreas: profile.focus_areas,
+    rubricWeights: mapRubricWeights(profile.rubric_weights),
   };
 }
 
-export async function saveProfileToSupabase(profile: SupabaseProfile) {
+export async function saveProfileToSupabase(
+  profile: SupabaseProfile,
+): Promise<SupabaseProfileSaveResult> {
   const connection = await getSupabaseUserConnection();
 
   if (!connection) {
@@ -280,13 +325,31 @@ export async function saveProfileToSupabase(profile: SupabaseProfile) {
     target_role: profile.targetRole,
     target_company: profile.targetCompany,
     focus_areas: profile.focusAreas,
+    rubric_weights: profile.rubricWeights ?? {},
   });
 
   if (error) {
+    if (isMissingRubricWeightsColumnError(error)) {
+      const { error: legacyError } = await connection.supabase
+        .from("profiles")
+        .upsert({
+          user_id: connection.userId,
+          target_role: profile.targetRole,
+          target_company: profile.targetCompany,
+          focus_areas: profile.focusAreas,
+        });
+
+      if (legacyError) {
+        throw legacyError;
+      }
+
+      return "saved_without_rubric_weights";
+    }
+
     throw error;
   }
 
-  return true;
+  return "saved";
 }
 
 async function saveEvaluationToSupabase({
@@ -399,6 +462,45 @@ function mapRubricScoresFromRecords(
       (a, b) =>
         rubricAreas.indexOf(a.area) - rubricAreas.indexOf(b.area),
     );
+}
+
+function mapRubricWeights(value: unknown): RubricWeights | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const rawWeights = value as Record<string, unknown>;
+  let foundSavedWeight = false;
+  const weights = Object.fromEntries(
+    rubricAreas.map((area) => {
+      const rawValue = rawWeights[area];
+      const numericValue =
+        typeof rawValue === "number" ? rawValue : Number(rawValue);
+
+      if (Number.isFinite(numericValue)) {
+        foundSavedWeight = true;
+        return [area, Math.max(0, Math.min(100, numericValue))];
+      }
+
+      return [area, 0];
+    }),
+  ) as RubricWeights;
+
+  return foundSavedWeight ? weights : undefined;
+}
+
+function isMissingRubricWeightsColumnError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const candidate = error as { code?: unknown; message?: unknown };
+
+  return (
+    candidate.code === "42703" &&
+    typeof candidate.message === "string" &&
+    candidate.message.includes("rubric_weights")
+  );
 }
 
 export const interviewTables = [

@@ -1,16 +1,21 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import {
   createContext,
   type ReactNode,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { createCoachOpening, runLocalAgentTurn } from "@/lib/interview/agent";
-import { promptLibrary, seedSessions } from "@/lib/interview/catalog";
+import {
+  defaultRubric,
+  promptLibrary,
+  seedSessions,
+} from "@/lib/interview/catalog";
+import { buildProgressMemory } from "@/lib/interview/progress-memory";
 import type {
   AgentTurn,
   AgentTurnRequest,
@@ -19,6 +24,8 @@ import type {
   InterviewMode,
   InterviewSession,
   PromptItem,
+  RubricArea,
+  RubricWeights,
 } from "@/lib/interview/types";
 import {
   loadInterviewSessionsFromSupabase,
@@ -30,8 +37,20 @@ import {
 import { uid } from "@/lib/utils";
 
 const sessionStorageKey = "interviewos_sessions_v1";
+const actionNoticeDurationMs = 3_000;
+const defaultRubricWeights = Object.fromEntries(
+  defaultRubric.map((rubric) => [rubric.area, rubric.weight]),
+) as RubricWeights;
+
+type PendingAction =
+  | "starting_session"
+  | "submitting_answer"
+  | "evaluating_session"
+  | "saving_settings"
+  | null;
 
 type InterviewOSContextValue = {
+  actionNotice: string | null;
   difficulty: Difficulty;
   input: string;
   isThinking: boolean;
@@ -41,7 +60,9 @@ type InterviewOSContextValue = {
   modePrompts: PromptItem[];
   persistenceDetail: string;
   persistenceStatus: SupabaseSyncStatus;
+  pendingAction: PendingAction;
   promptId: string;
+  rubricWeights: RubricWeights;
   selectedFocusAreas: string[];
   selectedPrompt: PromptItem;
   session: InterviewSession | null;
@@ -60,12 +81,12 @@ type InterviewOSContextValue = {
   setTargetRole: (role: string) => void;
   startSession: (promptOverride?: PromptItem) => void;
   submitAnswer: () => Promise<void>;
+  updateRubricWeight: (area: RubricArea, weight: number) => void;
 };
 
 const InterviewOSContext = createContext<InterviewOSContextValue | null>(null);
 
 export function InterviewOSProvider({ children }: { children: ReactNode }) {
-  const router = useRouter();
   const [mode, setMode] = useState<InterviewMode>("System Design");
   const [difficulty, setDifficulty] = useState<Difficulty>("Mid");
   const [promptId, setPromptId] = useState("url-shortener");
@@ -74,6 +95,14 @@ export function InterviewOSProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<InterviewSession[]>(seedSessions);
   const [input, setInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const actionNoticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const readyFrameRef = useRef<number | null>(null);
+  const [rubricWeights, setRubricWeights] =
+    useState<RubricWeights>(defaultRubricWeights);
   const [persistenceStatus, setPersistenceStatus] =
     useState<SupabaseSyncStatus>("checking");
   const [persistenceDetail, setPersistenceDetail] = useState(
@@ -97,22 +126,31 @@ export function InterviewOSProvider({ children }: { children: ReactNode }) {
   const selectedPrompt =
     modePrompts.find((prompt) => prompt.id === promptId) ?? modePrompts[0];
   const latestEvaluation = session?.evaluation ?? sessions[0]?.evaluation;
+  const progressMemory = useMemo(
+    () => buildProgressMemory(sessions),
+    [sessions],
+  );
 
   // Local storage keeps the app usable with no credentials. Supabase replaces
   // the same session list when the project keys and anonymous auth are ready.
   useEffect(() => {
+    let cancelled = false;
+    let storedSessionsTimeout: number | null = null;
     const storedSessions = window.localStorage.getItem(sessionStorageKey);
+
     if (storedSessions) {
-      queueMicrotask(() => {
+      storedSessionsTimeout = window.setTimeout(() => {
+        if (cancelled) {
+          return;
+        }
+
         try {
           setSessions(JSON.parse(storedSessions));
         } catch {
           window.localStorage.removeItem(sessionStorageKey);
         }
-      });
+      }, 0);
     }
-
-    let cancelled = false;
 
     async function loadRemoteState() {
       try {
@@ -143,6 +181,9 @@ export function InterviewOSProvider({ children }: { children: ReactNode }) {
           setTargetRole(remoteProfile.targetRole);
           setTargetCompany(remoteProfile.targetCompany);
           setSelectedFocusAreas(remoteProfile.focusAreas);
+          if (remoteProfile.rubricWeights) {
+            setRubricWeights(remoteProfile.rubricWeights);
+          }
         }
       } catch (error) {
         console.error("Supabase load failed; using local data.", error);
@@ -158,6 +199,10 @@ export function InterviewOSProvider({ children }: { children: ReactNode }) {
 
     return () => {
       cancelled = true;
+
+      if (storedSessionsTimeout) {
+        window.clearTimeout(storedSessionsTimeout);
+      }
     };
   }, []);
 
@@ -168,6 +213,27 @@ export function InterviewOSProvider({ children }: { children: ReactNode }) {
     );
   }, [sessions]);
 
+  useEffect(() => {
+    readyFrameRef.current = window.requestAnimationFrame(() => {
+      readyFrameRef.current = window.requestAnimationFrame(() => {
+        document.documentElement.dataset.interviewosReady = "true";
+        readyFrameRef.current = null;
+      });
+    });
+
+    return () => {
+      delete document.documentElement.dataset.interviewosReady;
+
+      if (actionNoticeTimeoutRef.current) {
+        clearTimeout(actionNoticeTimeoutRef.current);
+      }
+
+      if (readyFrameRef.current !== null) {
+        window.cancelAnimationFrame(readyFrameRef.current);
+      }
+    };
+  }, []);
+
   function changeMode(nextMode: InterviewMode) {
     setMode(nextMode);
     setPromptId(
@@ -175,8 +241,30 @@ export function InterviewOSProvider({ children }: { children: ReactNode }) {
     );
   }
 
+  function showActionNotice(message: string | null, durationMs = actionNoticeDurationMs) {
+    if (actionNoticeTimeoutRef.current) {
+      clearTimeout(actionNoticeTimeoutRef.current);
+      actionNoticeTimeoutRef.current = null;
+    }
+
+    setActionNotice(message);
+
+    if (!message || durationMs === 0) {
+      return;
+    }
+
+    actionNoticeTimeoutRef.current = setTimeout(() => {
+      setActionNotice((currentMessage) =>
+        currentMessage === message ? null : currentMessage,
+      );
+      actionNoticeTimeoutRef.current = null;
+    }, durationMs);
+  }
+
   function startSession(promptOverride?: PromptItem) {
     const prompt = promptOverride ?? selectedPrompt;
+    setPendingAction("starting_session");
+    showActionNotice("Starting interview session...", 0);
     const nextSession: InterviewSession = {
       id: uid("session"),
       mode: prompt.mode,
@@ -193,13 +281,13 @@ export function InterviewOSProvider({ children }: { children: ReactNode }) {
     setLastTurn(null);
     setInput("");
     void persistSession(nextSession);
-    router.push("/interview");
+    setPendingAction(null);
+    showActionNotice("Session started. The coach is ready for your answer.");
   }
 
   function openSession(nextSession: InterviewSession) {
     setSession(nextSession);
     setLastTurn(null);
-    router.push("/evaluation");
   }
 
   async function submitAnswer() {
@@ -207,6 +295,8 @@ export function InterviewOSProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    setPendingAction("submitting_answer");
+    showActionNotice("Sending answer to the coach...", 0);
     const candidateMessage: InterviewMessage = {
       id: uid("msg"),
       role: "candidate",
@@ -225,16 +315,20 @@ export function InterviewOSProvider({ children }: { children: ReactNode }) {
       difficulty: nextSession.difficulty,
       prompt: nextSession.prompt,
       messages: nextMessages,
+      rubricWeights,
+      progressMemory,
     });
 
     applyAgentTurn(nextSession, turn);
   }
 
   async function endSession() {
-    if (!session || isThinking) {
+    if (!session || isThinking || session.status === "evaluated") {
       return;
     }
 
+    setPendingAction("evaluating_session");
+    showActionNotice("Building final evaluation...", 0);
     setIsThinking(true);
 
     const turn = await fetchAgentTurn({
@@ -242,6 +336,8 @@ export function InterviewOSProvider({ children }: { children: ReactNode }) {
       difficulty: session.difficulty,
       prompt: session.prompt,
       messages: session.messages,
+      rubricWeights,
+      progressMemory,
       forceEvaluate: true,
     });
 
@@ -265,6 +361,8 @@ export function InterviewOSProvider({ children }: { children: ReactNode }) {
     setSession(updatedSession);
     setLastTurn(turn);
     setIsThinking(false);
+    setPendingAction(null);
+    showActionNotice(noticeForAgentTurn(turn));
     void persistSession(updatedSession);
 
     if (updatedSession.status === "evaluated") {
@@ -272,7 +370,6 @@ export function InterviewOSProvider({ children }: { children: ReactNode }) {
         updatedSession,
         ...currentSessions.filter((item) => item.id !== updatedSession.id),
       ]);
-      router.push("/evaluation");
     }
   }
 
@@ -310,30 +407,67 @@ export function InterviewOSProvider({ children }: { children: ReactNode }) {
   }
 
   async function saveSettings() {
+    if (pendingAction === "saving_settings") {
+      return;
+    }
+
+    const totalRubricWeight = Object.values(rubricWeights).reduce(
+      (sum, value) => sum + value,
+      0,
+    );
+
+    if (totalRubricWeight !== 100) {
+      showActionNotice("Rubric weights must total 100% before saving.");
+      return;
+    }
+
+    setPendingAction("saving_settings");
+    showActionNotice("Saving settings...", 0);
+
     try {
       const saved = await saveProfileToSupabase({
         targetRole,
         targetCompany,
         focusAreas: selectedFocusAreas,
+        rubricWeights,
       });
 
-      if (saved) {
+      if (saved === "saved") {
         setPersistenceStatus("supabase");
         setPersistenceDetail("Settings saved to Supabase");
+        showActionNotice("Settings saved to Supabase.");
+      } else if (saved === "saved_without_rubric_weights") {
+        setPersistenceStatus("supabase");
+        setPersistenceDetail("Profile saved; rubric weights need migration");
+        showActionNotice(
+          "Profile saved. Apply the rubric weights migration to save sliders.",
+        );
       } else {
         setPersistenceStatus("local");
         setPersistenceDetail("Settings kept locally for this session");
+        showActionNotice("Settings kept locally for this session.");
       }
     } catch (error) {
       console.error("Supabase settings save failed.", error);
       setPersistenceStatus("error");
       setPersistenceDetail("Settings save failed; local values kept");
+      showActionNotice("Settings save failed. Local values were kept.");
+    } finally {
+      setPendingAction(null);
     }
+  }
+
+  function updateRubricWeight(area: RubricArea, weight: number) {
+    setRubricWeights((currentWeights) => ({
+      ...currentWeights,
+      [area]: weight,
+    }));
   }
 
   return (
     <InterviewOSContext.Provider
       value={{
+        actionNotice,
         difficulty,
         input,
         isThinking,
@@ -343,7 +477,9 @@ export function InterviewOSProvider({ children }: { children: ReactNode }) {
         modePrompts,
         persistenceDetail,
         persistenceStatus,
+        pendingAction,
         promptId,
+        rubricWeights,
         selectedFocusAreas,
         selectedPrompt,
         session,
@@ -362,11 +498,24 @@ export function InterviewOSProvider({ children }: { children: ReactNode }) {
         setTargetRole,
         startSession,
         submitAnswer,
+        updateRubricWeight,
       }}
     >
       {children}
     </InterviewOSContext.Provider>
   );
+}
+
+function noticeForAgentTurn(turn: AgentTurn) {
+  if (turn.action === "evaluate_answer") {
+    return "Evaluation complete.";
+  }
+
+  if (turn.action === "suggest_drill") {
+    return "Focused drill suggested.";
+  }
+
+  return "Follow-up ready.";
 }
 
 export function useInterviewOS() {

@@ -95,7 +95,7 @@ create table public.rubric_scores (
   evaluation_id text not null references public.evaluations(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
   area public.rubric_area not null,
-  score numeric(3, 1) not null check (score between 1 and 5),
+  score numeric(3, 1) not null check (score between 0 and 5),
   max_score numeric(3, 1) not null default 5 check (max_score = 5),
   rationale text not null,
   unique (evaluation_id, area)

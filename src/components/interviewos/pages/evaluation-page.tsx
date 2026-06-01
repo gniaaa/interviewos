@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertCircle, ArrowRight, CheckCircle2, ShieldCheck } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/interviewos/page-header";
 import { useInterviewOS } from "@/components/interviewos/provider";
 import type { Evaluation, InterviewSession } from "@/lib/interview/types";
@@ -8,7 +9,13 @@ import { formatScore } from "@/lib/utils";
 
 export function EvaluationPage() {
   const { latestEvaluation, session, sessions, startSession } = useInterviewOS();
+  const router = useRouter();
   const activeSession = session ?? sessions[0];
+
+  function runAnotherSession() {
+    startSession();
+    router.push("/interview");
+  }
 
   if (!latestEvaluation || !activeSession) {
     return (
@@ -34,7 +41,7 @@ export function EvaluationPage() {
         actions={
           <button
             type="button"
-            onClick={() => startSession()}
+            onClick={runAnotherSession}
             className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-sm font-semibold hover:bg-muted"
           >
             Run another

@@ -3,13 +3,15 @@
 import {
   Bot,
   CheckCircle2,
+  Loader2,
   RotateCw,
   Send,
   SlidersHorizontal,
   StopCircle,
   User,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, type ReactNode } from "react";
 import { PageHeader } from "@/components/interviewos/page-header";
 import { useInterviewOS } from "@/components/interviewos/provider";
 import type {
@@ -22,6 +24,7 @@ import { cn, formatAgentAction } from "@/lib/utils";
 
 export function InterviewPage() {
   const {
+    actionNotice,
     changeMode,
     difficulty,
     endSession,
@@ -30,6 +33,7 @@ export function InterviewPage() {
     lastTurn,
     mode,
     modePrompts,
+    pendingAction,
     promptId,
     selectedPrompt,
     session,
@@ -39,6 +43,21 @@ export function InterviewPage() {
     startSession,
     submitAnswer,
   } = useInterviewOS();
+  const router = useRouter();
+  const isSubmitting = pendingAction === "submitting_answer";
+  const isEvaluating = pendingAction === "evaluating_session";
+  const isStarting = pendingAction === "starting_session";
+  const canSubmit =
+    Boolean(session) &&
+    Boolean(input.trim()) &&
+    !isThinking &&
+    session?.status !== "evaluated";
+
+  useEffect(() => {
+    if (session?.status === "evaluated") {
+      router.push("/evaluation");
+    }
+  }, [router, session?.status]);
 
   return (
     <>
@@ -52,7 +71,8 @@ export function InterviewPage() {
               <button
                 type="button"
                 onClick={() => startSession()}
-                className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-sm font-semibold hover:bg-muted"
+                disabled={isThinking || isStarting}
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-sm font-semibold hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <RotateCw className="size-4" aria-hidden="true" />
                 Reset
@@ -60,11 +80,20 @@ export function InterviewPage() {
               <button
                 type="button"
                 onClick={endSession}
-                disabled={isThinking}
+                disabled={isThinking || session.status === "evaluated"}
+                aria-busy={isEvaluating}
                 className="inline-flex h-9 items-center gap-2 rounded-md bg-destructive px-3 text-sm font-semibold text-destructive-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <StopCircle className="size-4" aria-hidden="true" />
-                End & evaluate
+                {isEvaluating ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <StopCircle className="size-4" aria-hidden="true" />
+                )}
+                {session.status === "evaluated"
+                  ? "Evaluated"
+                  : isEvaluating
+                    ? "Evaluating..."
+                    : "End & evaluate"}
               </button>
             </>
           ) : null
@@ -101,10 +130,16 @@ export function InterviewPage() {
           <button
             type="button"
             onClick={() => startSession()}
-            className="ml-auto inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+            disabled={isThinking || isStarting}
+            aria-busy={isStarting}
+            className="ml-auto inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <SlidersHorizontal className="size-4" aria-hidden="true" />
-            Begin interview
+            {isStarting ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <SlidersHorizontal className="size-4" aria-hidden="true" />
+            )}
+            {isStarting ? "Starting..." : "Begin interview"}
           </button>
         </div>
 
@@ -123,7 +158,9 @@ export function InterviewPage() {
                       message={{
                         id: "thinking",
                         role: "coach",
-                        content: "Reviewing the answer...",
+                        content: isEvaluating
+                          ? "Building your final evaluation..."
+                          : "Reviewing your answer...",
                         createdAt: new Date().toISOString(),
                       }}
                       thinking
@@ -134,28 +171,54 @@ export function InterviewPage() {
             </div>
 
             <div className="border-t border-border bg-background px-4 py-3">
-              <div className="mx-auto flex max-w-3xl items-end gap-2">
-                <textarea
-                  value={input}
-                  onChange={(event) => setInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                      submitAnswer();
+              <div className="mx-auto max-w-3xl">
+                {actionNotice && (
+                  <div className="mb-2 rounded-md border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground">
+                    {actionNotice}
+                  </div>
+                )}
+                <div className="flex items-end gap-2">
+                  <textarea
+                    value={input}
+                    onChange={(event) => setInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.nativeEvent.isComposing) {
+                        return;
+                      }
+
+                      if (event.key !== "Enter" || event.shiftKey) {
+                        return;
+                      }
+
+                      event.preventDefault();
+
+                      void submitAnswer();
+                    }}
+                    disabled={!session || isThinking || session.status === "evaluated"}
+                    placeholder={
+                      !session
+                        ? "Begin an interview first"
+                        : session.status === "evaluated"
+                          ? "This session has been evaluated"
+                          : "Type your answer as the candidate..."
                     }
-                  }}
-                  disabled={!session || session.status === "evaluated"}
-                  placeholder="Type your answer as the candidate..."
-                  className="min-h-24 flex-1 resize-none rounded-md border border-input bg-card px-3 py-2 text-sm leading-6 outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:bg-muted/60"
-                />
-                <button
-                  type="button"
-                  onClick={submitAnswer}
-                  disabled={!session || !input.trim() || isThinking || session.status === "evaluated"}
-                  className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Send className="size-4" aria-hidden="true" />
-                  Send
-                </button>
+                    className="min-h-24 flex-1 resize-none rounded-md border border-input bg-card px-3 py-2 text-sm leading-6 outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:bg-muted/60"
+                  />
+                  <button
+                    type="button"
+                    onClick={submitAnswer}
+                    disabled={!canSubmit}
+                    aria-busy={isSubmitting}
+                    className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isSubmitting ? (
+                      <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Send className="size-4" aria-hidden="true" />
+                    )}
+                    {isSubmitting ? "Sending..." : "Send"}
+                  </button>
+                </div>
               </div>
             </div>
           </section>
